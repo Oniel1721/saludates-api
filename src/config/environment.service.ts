@@ -30,4 +30,16 @@ export class EnvironmentService {
       .map((e) => e.trim())
       .filter(Boolean);
   }
+
+  get wasenderApiKey(): string {
+    return this.require('WASENDER_API_KEY');
+  }
+
+  /**
+   * Public base URL of this API, used to register the WasenderAPI webhook.
+   * e.g. "https://api.saludates.com"
+   */
+  get apiBaseUrl(): string {
+    return this.require('API_BASE_URL');
+  }
 }
