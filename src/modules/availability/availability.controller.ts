@@ -10,6 +10,7 @@ import {
   Query,
   ParseIntPipe,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import { AvailabilityService } from '@/modules/availability/availability.service';
 import { BulkScheduleDto } from '@/modules/availability/dto/bulk-schedule.dto';
@@ -68,5 +69,31 @@ export class AvailabilityController {
     @Param('blockId') blockId: string,
   ) {
     return this.availability.deleteTimeBlock(clinicId, blockId);
+  }
+
+  // ── Availability validation (T-16) ──────────────────────────────────────────
+
+  @Get('availability/check')
+  async checkSlot(
+    @Param('clinicId') clinicId: string,
+    @Query('startsAt') startsAt: string,
+    @Query('endsAt') endsAt: string,
+  ) {
+    if (!startsAt || !endsAt) {
+      throw new BadRequestException('startsAt and endsAt query params are required');
+    }
+    return this.availability.checkSlot(clinicId, new Date(startsAt), new Date(endsAt));
+  }
+
+  @Get('availability/slots')
+  getAvailableSlots(
+    @Param('clinicId') clinicId: string,
+    @Query('date') date: string,
+    @Query('serviceId') serviceId: string,
+  ) {
+    if (!date || !serviceId) {
+      throw new BadRequestException('date and serviceId query params are required');
+    }
+    return this.availability.getAvailableSlots(clinicId, date, serviceId);
   }
 }

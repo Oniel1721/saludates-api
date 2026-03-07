@@ -4,6 +4,11 @@ import { BulkScheduleDto } from '@/modules/availability/dto/bulk-schedule.dto';
 import { UpdateScheduleDayDto } from '@/modules/availability/dto/update-schedule-day.dto';
 import { CreateTimeBlockDto } from '@/modules/availability/dto/create-time-block.dto';
 
+export interface SlotCheckResult {
+  available: boolean;
+  reason?: string;
+}
+
 @Injectable()
 export class AvailabilityService {
   constructor(private prisma: PrismaService) {}
@@ -20,7 +25,6 @@ export class AvailabilityService {
   async upsertSchedule(clinicId: string, dto: BulkScheduleDto) {
     const days = dto.schedule;
 
-    // Validate: active days must have startTime < endTime
     for (const day of days) {
       if (day.isActive && day.startTime >= day.endTime) {
         throw new BadRequestException(
@@ -92,12 +96,7 @@ export class AvailabilityService {
     }
 
     return this.prisma.timeBlock.create({
-      data: {
-        clinicId,
-        startDatetime: start,
-        endDatetime: end,
-        reason: dto.reason,
-      },
+      data: { clinicId, startDatetime: start, endDatetime: end, reason: dto.reason },
     });
   }
 
@@ -106,7 +105,159 @@ export class AvailabilityService {
       where: { id: blockId, clinicId },
     });
     if (!block) throw new NotFoundException('Time block not found');
-
     return this.prisma.timeBlock.delete({ where: { id: blockId } });
+  }
+
+  // ── Availability validation (T-16) ──────────────────────────────────────────
+
+  /**
+   * Checks if a given time slot is available for booking.
+   * Used by the appointments service and the bot flow.
+   * Assumes datetimes are in the clinic's local timezone.
+   *
+   * @param excludeAppointmentId — skip this appointment when checking overlaps (for reschedules)
+   */
+  async checkSlot(
+    clinicId: string,
+    startsAt: Date,
+    endsAt: Date,
+    excludeAppointmentId?: string,
+  ): Promise<SlotCheckResult> {
+    // 1. Check base schedule
+    const dayOfWeek = startsAt.getDay();
+    const schedule = await this.prisma.schedule.findUnique({
+      where: { clinicId_dayOfWeek: { clinicId, dayOfWeek } },
+    });
+
+    if (!schedule || !schedule.isActive) {
+      return { available: false, reason: 'Clinic is closed on this day' };
+    }
+
+    const toMinutes = (hhmm: string) => {
+      const [h, m] = hhmm.split(':').map(Number);
+      return h * 60 + m;
+    };
+
+    const slotStartMin = startsAt.getHours() * 60 + startsAt.getMinutes();
+    const slotEndMin = endsAt.getHours() * 60 + endsAt.getMinutes();
+    const scheduleStartMin = toMinutes(schedule.startTime);
+    const scheduleEndMin = toMinutes(schedule.endTime);
+
+    if (slotStartMin < scheduleStartMin || slotEndMin > scheduleEndMin) {
+      return { available: false, reason: 'Time slot is outside clinic hours' };
+    }
+
+    // 2. Check time blocks (blocked periods overlap the slot)
+    const blockingBlock = await this.prisma.timeBlock.findFirst({
+      where: {
+        clinicId,
+        startDatetime: { lt: endsAt },
+        endDatetime: { gt: startsAt },
+      },
+    });
+
+    if (blockingBlock) {
+      return {
+        available: false,
+        reason: blockingBlock.reason
+          ? `Clinic is unavailable: ${blockingBlock.reason}`
+          : 'Clinic is unavailable during this period',
+      };
+    }
+
+    // 3. Check appointment overlaps (non-cancelled)
+    const overlappingAppointment = await this.prisma.appointment.findFirst({
+      where: {
+        clinicId,
+        id: excludeAppointmentId ? { not: excludeAppointmentId } : undefined,
+        status: { not: 'CANCELLED' },
+        startsAt: { lt: endsAt },
+        endsAt: { gt: startsAt },
+      },
+    });
+
+    if (overlappingAppointment) {
+      return { available: false, reason: 'This time slot is already booked' };
+    }
+
+    return { available: true };
+  }
+
+  /**
+   * Returns all available start times for a given date and service.
+   * Slots are generated every `durationMinutes` within the clinic's schedule.
+   */
+  async getAvailableSlots(
+    clinicId: string,
+    date: string,
+    serviceId: string,
+  ): Promise<string[]> {
+    const service = await this.prisma.service.findFirst({
+      where: { id: serviceId, clinicId, archivedAt: null },
+    });
+    if (!service) throw new NotFoundException('Service not found');
+
+    const parsedDate = new Date(date);
+    const dayOfWeek = parsedDate.getDay();
+
+    const schedule = await this.prisma.schedule.findUnique({
+      where: { clinicId_dayOfWeek: { clinicId, dayOfWeek } },
+    });
+
+    if (!schedule || !schedule.isActive) return [];
+
+    // Pre-fetch blocking data for that day to avoid N+1 queries
+    const dayStart = new Date(parsedDate);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(parsedDate);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const [timeBlocks, appointments] = await Promise.all([
+      this.prisma.timeBlock.findMany({
+        where: {
+          clinicId,
+          startDatetime: { lt: dayEnd },
+          endDatetime: { gt: dayStart },
+        },
+      }),
+      this.prisma.appointment.findMany({
+        where: {
+          clinicId,
+          status: { not: 'CANCELLED' },
+          startsAt: { lt: dayEnd },
+          endsAt: { gt: dayStart },
+        },
+      }),
+    ]);
+
+    const toMinutes = (hhmm: string) => {
+      const [h, m] = hhmm.split(':').map(Number);
+      return h * 60 + m;
+    };
+
+    const scheduleStartMin = toMinutes(schedule.startTime);
+    const scheduleEndMin = toMinutes(schedule.endTime);
+    const durationMin = service.durationMinutes;
+    const availableSlots: string[] = [];
+
+    for (let min = scheduleStartMin; min + durationMin <= scheduleEndMin; min += durationMin) {
+      const slotStart = new Date(parsedDate);
+      slotStart.setHours(Math.floor(min / 60), min % 60, 0, 0);
+      const slotEnd = new Date(slotStart.getTime() + durationMin * 60_000);
+
+      const blockedByTimeBlock = timeBlocks.some(
+        (b) => b.startDatetime < slotEnd && b.endDatetime > slotStart,
+      );
+      if (blockedByTimeBlock) continue;
+
+      const blockedByAppointment = appointments.some(
+        (a) => a.startsAt < slotEnd && a.endsAt > slotStart,
+      );
+      if (blockedByAppointment) continue;
+
+      availableSlots.push(slotStart.toISOString());
+    }
+
+    return availableSlots;
   }
 }
