@@ -7,6 +7,7 @@ import {
 import { isAfter, isEqual } from 'date-fns';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AvailabilityService } from '@/modules/availability/availability.service';
+import { WhatsAppMessagesService } from '@/modules/whatsapp/whatsapp-messages.service';
 import { CreateAppointmentDto } from '@/modules/appointments/dto/create-appointment.dto';
 import { UpdateAppointmentDto } from '@/modules/appointments/dto/update-appointment.dto';
 import { CancelAppointmentDto } from '@/modules/appointments/dto/cancel-appointment.dto';
@@ -17,6 +18,7 @@ export class AppointmentsService {
   constructor(
     private prisma: PrismaService,
     private availability: AvailabilityService,
+    private whatsappMessages: WhatsAppMessagesService,
   ) {}
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -88,7 +90,7 @@ export class AppointmentsService {
 
     const patient = await this.findOrCreatePatient(clinicId, dto.patientName, dto.patientPhone);
 
-    return this.prisma.appointment.create({
+    const appointment = await this.prisma.appointment.create({
       data: {
         clinicId,
         patientId: patient.id,
@@ -101,6 +103,11 @@ export class AppointmentsService {
       },
       include: { patient: true, service: true },
     });
+
+    // MSG-01 — send confirmation to patient (fire-and-forget)
+    void this.whatsappMessages.sendCreatedBySecretary(clinicId, appointment);
+
+    return appointment;
   }
 
   /** Edit appointment from web app (T-13) */
@@ -154,7 +161,15 @@ export class AppointmentsService {
     const newStatus =
       datetimeChanged && appointment.status === 'CONFIRMED' ? 'PENDING' : appointment.status;
 
-    return this.prisma.appointment.update({
+    // Capture snapshot before overwriting (needed for MSG-08 diff)
+    const previous = {
+      serviceId: appointment.serviceId,
+      serviceName: appointment.service.name,
+      startsAt: appointment.startsAt,
+      price: appointment.price,
+    };
+
+    const updated = await this.prisma.appointment.update({
       where: { id: appointmentId },
       data: {
         serviceId: service.id,
@@ -165,6 +180,11 @@ export class AppointmentsService {
       },
       include: { patient: true, service: true },
     });
+
+    // MSG-08 — notify patient of the change (fire-and-forget)
+    void this.whatsappMessages.sendUpdatedBySecretary(clinicId, updated, previous);
+
+    return updated;
   }
 
   /** Cancel appointment from web app (T-14) */
@@ -177,7 +197,7 @@ export class AppointmentsService {
       );
     }
 
-    return this.prisma.appointment.update({
+    const cancelled = await this.prisma.appointment.update({
       where: { id: appointmentId },
       data: {
         status: 'CANCELLED',
@@ -187,6 +207,11 @@ export class AppointmentsService {
       },
       include: { patient: true, service: true },
     });
+
+    // MSG-09 — notify patient of cancellation (fire-and-forget)
+    void this.whatsappMessages.sendCancelledBySecretary(clinicId, cancelled);
+
+    return cancelled;
   }
 
   /** Mark result after the appointment time has passed (T-15) */
