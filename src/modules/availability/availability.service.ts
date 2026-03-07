@@ -170,7 +170,7 @@ export class AvailabilityService {
       where: {
         clinicId,
         id: excludeAppointmentId ? { not: excludeAppointmentId } : undefined,
-        status: { not: 'CANCELLED' },
+        status: { in: ['PENDING', 'CONFIRMED'] },
         startsAt: { lt: endsAt },
         endsAt: { gt: startsAt },
       },
@@ -223,7 +223,7 @@ export class AvailabilityService {
       this.prisma.appointment.findMany({
         where: {
           clinicId,
-          status: { not: 'CANCELLED' },
+          status: { in: ['PENDING', 'CONFIRMED'] },
           startsAt: { lt: dayEnd },
           endsAt: { gt: dayStart },
         },
