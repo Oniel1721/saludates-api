@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "notification_type" ADD VALUE 'ESCALATION_SECRETARY_REPLY';

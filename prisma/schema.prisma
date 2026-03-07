@@ -75,9 +75,10 @@ enum MessageType {
 }
 
 enum NotificationType {
-  ESCALATION      // bot escalated a conversation
-  UNCONFIRMED_2H  // appointment not confirmed 2h before
-  RESULT_NEEDED   // appointment time passed, result pending
+  ESCALATION                 // bot escalated a conversation
+  ESCALATION_SECRETARY_REPLY // secretary replied after escalation — confirm resolution?
+  UNCONFIRMED_2H             // appointment not confirmed 2h before
+  RESULT_NEEDED              // appointment time passed, result pending
 
   @@map("notification_type")
 }
