@@ -90,9 +90,11 @@ model Clinic {
   name              String
   address           String
   authorizedEmails  String[]       @map("authorized_emails") // Google emails allowed to access
-  whatsappPhone     String?        @map("whatsapp_phone")    // connected number, e.g. "18091234567"
-  whatsappSessionId String?        @map("whatsapp_session_id") // WasenderAPI session ID
-  whatsappStatus    WhatsAppStatus @default(DISCONNECTED) @map("whatsapp_status")
+  whatsappPhone         String?        @map("whatsapp_phone")          // connected number, e.g. "18091234567"
+  whatsappSessionId     Int?           @map("whatsapp_session_id")      // WasenderAPI session numeric ID
+  whatsappApiKey        String?        @map("whatsapp_api_key")         // session-scoped Bearer token (for send-message)
+  whatsappWebhookSecret String?        @map("whatsapp_webhook_secret")  // for verifying X-Webhook-Signature
+  whatsappStatus        WhatsAppStatus @default(DISCONNECTED) @map("whatsapp_status")
   onboardingDone    Boolean        @default(false) @map("onboarding_done")
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
