@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { NotificationType } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
+import { SseService } from '@/modules/sse/sse.service';
 
 export interface CreateNotificationParams {
   clinicId: string;
@@ -13,14 +14,17 @@ export interface CreateNotificationParams {
 
 @Injectable()
 export class NotificationsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private sse: SseService,
+  ) {}
 
   /**
-   * Creates a notification. Called internally by the bot and the scheduler.
-   * SSE push will be added here when real-time delivery is implemented (T-35).
+   * Creates a notification and pushes it in real-time to connected SSE clients.
+   * Called internally by the bot and the scheduler.
    */
-  create(params: CreateNotificationParams) {
-    return this.prisma.notification.create({
+  async create(params: CreateNotificationParams) {
+    const notification = await this.prisma.notification.create({
       data: {
         clinicId: params.clinicId,
         type: params.type,
@@ -30,6 +34,10 @@ export class NotificationsService {
         conversationId: params.conversationId,
       },
     });
+
+    this.sse.emit(params.clinicId, { type: 'notification', notification });
+
+    return notification;
   }
 
   /** List notifications for the clinic. Pass unreadOnly=true for the badge count. */

@@ -15,6 +15,7 @@ import { NotificationsModule } from '@/modules/notifications/notifications.modul
 import { WhatsAppModule } from '@/modules/whatsapp/whatsapp.module';
 import { BotModule } from '@/modules/bot/bot.module';
 import { SchedulerModule } from '@/modules/scheduler/scheduler.module';
+import { SseModule } from '@/modules/sse/sse.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { SchedulerModule } from '@/modules/scheduler/scheduler.module';
     WhatsAppModule,
     BotModule,
     SchedulerModule,
+    SseModule,
   ],
   controllers: [AppController],
   providers: [AppService],
