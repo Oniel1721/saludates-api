@@ -196,6 +196,7 @@ export class AvailabilityService {
     clinicId: string,
     date: string,
     serviceId: string,
+    excludeAppointmentId?: string,
   ): Promise<string[]> {
     const parsedDate = new Date(date);
     parsedDate.setHours(0, 0, 0, 0);
@@ -271,7 +272,10 @@ export class AvailabilityService {
       if (blockedByTimeBlock) continue;
 
       const blockedByAppointment = appointments.some(
-        (a) => isBefore(a.startsAt, slotEnd) && isAfter(a.endsAt, slotStart),
+        (a) =>
+          a.id !== excludeAppointmentId &&
+          isBefore(a.startsAt, slotEnd) &&
+          isAfter(a.endsAt, slotStart),
       );
       if (blockedByAppointment) continue;
 
