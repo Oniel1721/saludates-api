@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
+import { isAfter, isEqual } from 'date-fns';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AvailabilityService } from '@/modules/availability/availability.service';
 import { CreateAppointmentDto } from '@/modules/appointments/dto/create-appointment.dto';
@@ -76,7 +77,7 @@ export class AppointmentsService {
 
     const startsAt = new Date(dto.startsAt);
 
-    if (startsAt <= new Date()) {
+    if (!isAfter(startsAt, new Date())) {
       throw new BadRequestException('Cannot create an appointment in the past');
     }
 
@@ -127,8 +128,8 @@ export class AppointmentsService {
 
     // Re-check availability if the slot changed (different start OR different duration)
     const slotChanged =
-      startsAt.getTime() !== appointment.startsAt.getTime() ||
-      endsAt.getTime() !== appointment.endsAt.getTime();
+      !isEqual(startsAt, appointment.startsAt) ||
+      !isEqual(endsAt, appointment.endsAt);
 
     if (slotChanged) {
       const { available, reason } = await this.availability.checkSlot(
@@ -149,7 +150,7 @@ export class AppointmentsService {
     }
 
     // Only a startsAt change (date/time) resets CONFIRMED → PENDING (PRD rule)
-    const datetimeChanged = !!dto.startsAt && startsAt.getTime() !== appointment.startsAt.getTime();
+    const datetimeChanged = !!dto.startsAt && !isEqual(startsAt, appointment.startsAt);
     const newStatus =
       datetimeChanged && appointment.status === 'CONFIRMED' ? 'PENDING' : appointment.status;
 
@@ -192,7 +193,7 @@ export class AppointmentsService {
   async markResult(clinicId: string, appointmentId: string, dto: MarkResultDto) {
     const appointment = await this.findAppointmentOrThrow(clinicId, appointmentId);
 
-    if (appointment.startsAt > new Date()) {
+    if (isAfter(appointment.startsAt, new Date())) {
       throw new BadRequestException('Cannot mark result before the appointment time has passed');
     }
 

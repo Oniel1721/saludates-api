@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { isAfter, isBefore, isEqual } from 'date-fns';
 import { PrismaService } from '@/prisma/prisma.service';
 import { BulkScheduleDto } from '@/modules/availability/dto/bulk-schedule.dto';
 import { UpdateScheduleDayDto } from '@/modules/availability/dto/update-schedule-day.dto';
@@ -91,7 +92,7 @@ export class AvailabilityService {
     const start = new Date(dto.startDatetime);
     const end = new Date(dto.endDatetime);
 
-    if (end <= start) {
+    if (!isAfter(end, start)) {
       throw new BadRequestException('endDatetime must be after startDatetime');
     }
 
@@ -123,7 +124,7 @@ export class AvailabilityService {
     endsAt: Date,
     excludeAppointmentId?: string,
   ): Promise<SlotCheckResult> {
-    if (startsAt <= new Date()) {
+    if (!isAfter(startsAt, new Date())) {
       throw new BadRequestException('Cannot check availability for a past date');
     }
 
@@ -202,7 +203,7 @@ export class AvailabilityService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    if (parsedDate < today) {
+    if (isBefore(parsedDate, today)) {
       throw new BadRequestException('Cannot get available slots for a past date');
     }
 
@@ -260,17 +261,17 @@ export class AvailabilityService {
       slotStart.setHours(Math.floor(min / 60), min % 60, 0, 0);
 
       // Skip slots that have already started
-      if (slotStart <= now) continue;
+      if (!isAfter(slotStart, now)) continue;
 
       const slotEnd = new Date(slotStart.getTime() + durationMin * 60_000);
 
       const blockedByTimeBlock = timeBlocks.some(
-        (b) => b.startDatetime < slotEnd && b.endDatetime > slotStart,
+        (b) => isBefore(b.startDatetime, slotEnd) && isAfter(b.endDatetime, slotStart),
       );
       if (blockedByTimeBlock) continue;
 
       const blockedByAppointment = appointments.some(
-        (a) => a.startsAt < slotEnd && a.endsAt > slotStart,
+        (a) => isBefore(a.startsAt, slotEnd) && isAfter(a.endsAt, slotStart),
       );
       if (blockedByAppointment) continue;
 
