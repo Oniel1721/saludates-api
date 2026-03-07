@@ -10,6 +10,7 @@ import {
   QrCodeUpdatedPayload,
   MessageReceivedPayload,
   MessageUpsertPayload,
+  IncomingMessage,
 } from '@/lib/wasender';
 
 @Injectable()
@@ -19,6 +20,14 @@ export class WhatsAppService {
   // In-memory QR cache: clinicId → qr string.
   // QR codes expire in ~45s, re-fetched on demand via getSessionQrCode.
   private readonly qrCache = new Map<string, string>();
+
+  // Registered by BotService.onModuleInit — handles incoming messages from patients + secretary.
+  private messageHandler?: (clinicId: string, message: IncomingMessage) => Promise<void>;
+
+  /** Called by BotService during module initialization to register the message handler. */
+  registerMessageHandler(handler: (clinicId: string, message: IncomingMessage) => Promise<void>) {
+    this.messageHandler = handler;
+  }
 
   private get wasender() {
     return new WasenderClient(this.env.wasenderApiKey);
@@ -58,7 +67,9 @@ export class WhatsAppService {
       log_messages: false,
       webhook_url: webhookUrl,
       webhook_enabled: true,
-      webhook_events: ['session.status', 'qrcode.updated', 'messages.received'],
+      // messages.upsert = ALL messages (incoming from patient + outgoing from secretary)
+      // This lets us detect secretary replies in escalated conversations (fromMe: true).
+      webhook_events: ['session.status', 'qrcode.updated', 'messages.upsert'],
     });
 
     // 2. Connect session to get QR
@@ -212,8 +223,10 @@ export class WhatsAppService {
 
       case 'messages.received':
       case 'messages.upsert':
-        // Delegated to bot module (T-20) via an injectable message handler
-        await this.onIncomingMessage(clinic.id, payload as MessageReceivedPayload | MessageUpsertPayload);
+        if (this.messageHandler) {
+          const msg = (payload as MessageReceivedPayload | MessageUpsertPayload).data.messages;
+          await this.messageHandler(clinic.id, msg);
+        }
         break;
 
       default:
@@ -249,15 +262,5 @@ export class WhatsAppService {
     this.qrCache.set(clinicId, payload.data.qr);
   }
 
-  /**
-   * Hook for incoming patient messages. Will be implemented by the bot module (T-20).
-   * Overridable so the bot can inject its own handler without changing this service.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected async onIncomingMessage(
-    _clinicId: string,
-    _payload: MessageReceivedPayload | MessageUpsertPayload,
-  ): Promise<void> {
-    // No-op until bot module is implemented (T-20)
-  }
 }
+

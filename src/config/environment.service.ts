@@ -35,6 +35,10 @@ export class EnvironmentService {
     return this.require('WASENDER_API_KEY');
   }
 
+  get anthropicApiKey(): string {
+    return this.require('ANTHROPIC_API_KEY');
+  }
+
   /**
    * Public base URL of this API, used to register the WasenderAPI webhook.
    * e.g. "https://api.saludates.com"

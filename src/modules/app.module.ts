@@ -12,6 +12,7 @@ import { PatientsModule } from '@/modules/patients/patients.module';
 import { ConversationsModule } from '@/modules/conversations/conversations.module';
 import { NotificationsModule } from '@/modules/notifications/notifications.module';
 import { WhatsAppModule } from '@/modules/whatsapp/whatsapp.module';
+import { BotModule } from '@/modules/bot/bot.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { WhatsAppModule } from '@/modules/whatsapp/whatsapp.module';
     ConversationsModule,
     NotificationsModule,
     WhatsAppModule,
+    BotModule,
   ],
   controllers: [AppController],
   providers: [AppService],
