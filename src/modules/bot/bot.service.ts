@@ -15,6 +15,36 @@ interface RecentMessage {
   text: string;
 }
 
+/** Minimal conversation context passed to flow handlers. */
+export interface FlowConversation {
+  id: string;
+  flow: ConversationFlow;
+  flowState: Prisma.JsonValue;
+}
+
+/** Minimal patient context passed to flow handlers. */
+export interface FlowPatient {
+  id: string;
+  name: string;
+  phone: string;
+}
+
+/**
+ * Contract that each flow handler must implement.
+ * Registered via BotService.registerFlowHandler() in each flow's onModuleInit.
+ */
+export interface FlowHandler {
+  /** Called when the patient's intent triggers this flow for the first time. */
+  start(clinicId: string, conversation: FlowConversation, patient: FlowPatient): Promise<void>;
+  /** Called on every subsequent message while the conversation is in this flow. */
+  handleStep(
+    clinicId: string,
+    conversation: FlowConversation,
+    patient: FlowPatient,
+    text: string,
+  ): Promise<void>;
+}
+
 // ─── BotService ───────────────────────────────────────────────────────────────
 
 /**
@@ -40,6 +70,16 @@ interface RecentMessage {
 @Injectable()
 export class BotService implements OnModuleInit {
   private readonly logger = new Logger(BotService.name);
+  private readonly flowHandlers = new Map<ConversationFlow, FlowHandler>();
+
+  /**
+   * Flow modules call this in their onModuleInit to register themselves.
+   * When a conversation enters that flow, BotService delegates to the handler.
+   */
+  registerFlowHandler(flow: ConversationFlow, handler: FlowHandler): void {
+    this.flowHandlers.set(flow, handler);
+    this.logger.log(`Flow handler registered for: ${flow}`);
+  }
 
   constructor(
     private prisma: PrismaService,
@@ -138,6 +178,27 @@ export class BotService implements OnModuleInit {
       return;
     }
 
+    // If there's an active flow, delegate to its registered handler
+    if (conversation.flow !== ConversationFlow.OUT_OF_FLOW) {
+      const handler = this.flowHandlers.get(conversation.flow);
+      if (handler) {
+        await handler.handleStep(clinicId, conversation, patient, text);
+        return;
+      }
+      // No handler registered yet — Claude fallback
+      const clinicName = (
+        await this.prisma.clinic.findUnique({ where: { id: clinicId }, select: { name: true } })
+      )?.name ?? 'el consultorio';
+      const recentMessages = await this.getRecentMessages(conversation.id);
+      const response = await this.intent.generateResponse({
+        clinicName, patientName: patient.name, patientMessage: text,
+        currentFlow: conversation.flow, recentMessages, intent: 'ESCALATE',
+      });
+      await this.whatsapp.sendText(clinicId, patient.phone, response);
+      return;
+    }
+
+    // OUT_OF_FLOW: classify intent and dispatch
     const clinic = await this.prisma.clinic.findUnique({
       where: { id: clinicId },
       select: { name: true },
@@ -253,35 +314,47 @@ export class BotService implements OnModuleInit {
 
       // Flows T-21..T-26: update conversation flow + generate contextual response via Claude.
       // These will be replaced by dedicated flow handlers in subsequent tasks.
-      case 'CREATE_APPOINTMENT':
-        await this.startFlow(
-          clinicId,
-          conversation,
-          patient,
-          ConversationFlow.CREATING_APPOINTMENT,
-          classifyParams,
-        );
+      case 'CREATE_APPOINTMENT': {
+        const handler = this.flowHandlers.get(ConversationFlow.CREATING_APPOINTMENT);
+        await this.prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { flow: ConversationFlow.CREATING_APPOINTMENT, flowState: Prisma.JsonNull },
+        });
+        if (handler) {
+          await handler.start(clinicId, conversation, patient);
+        } else {
+          await this.respondWithClaude(clinicId, patient, classifyParams, 'CREATE_APPOINTMENT');
+        }
         break;
+      }
 
-      case 'CANCEL_APPOINTMENT':
-        await this.startFlow(
-          clinicId,
-          conversation,
-          patient,
-          ConversationFlow.CANCELLING,
-          classifyParams,
-        );
+      case 'CANCEL_APPOINTMENT': {
+        const handler = this.flowHandlers.get(ConversationFlow.CANCELLING);
+        await this.prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { flow: ConversationFlow.CANCELLING, flowState: Prisma.JsonNull },
+        });
+        if (handler) {
+          await handler.start(clinicId, conversation, patient);
+        } else {
+          await this.respondWithClaude(clinicId, patient, classifyParams, 'CANCEL_APPOINTMENT');
+        }
         break;
+      }
 
-      case 'RESCHEDULE_APPOINTMENT':
-        await this.startFlow(
-          clinicId,
-          conversation,
-          patient,
-          ConversationFlow.RESCHEDULING,
-          classifyParams,
-        );
+      case 'RESCHEDULE_APPOINTMENT': {
+        const handler = this.flowHandlers.get(ConversationFlow.RESCHEDULING);
+        await this.prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { flow: ConversationFlow.RESCHEDULING, flowState: Prisma.JsonNull },
+        });
+        if (handler) {
+          await handler.start(clinicId, conversation, patient);
+        } else {
+          await this.respondWithClaude(clinicId, patient, classifyParams, 'RESCHEDULE_APPOINTMENT');
+        }
         break;
+      }
 
       case 'CONFIRM':
       case 'DENY':

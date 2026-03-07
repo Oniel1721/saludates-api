@@ -90,6 +90,23 @@ Usa "low" si no estás seguro. Usa ESCALATE con "low" para situaciones urgentes 
   }
 
   /**
+   * Low-level helper: calls Claude with a prompt and parses the response as JSON.
+   * Used by flow handlers for focused, single-purpose classifications (service matching,
+   * datetime parsing, confirm/deny, slot selection).
+   * Throws on parse failure so callers can handle gracefully.
+   */
+  async callJson<T>(prompt: string, maxTokens: number): Promise<T> {
+    const response = await this.client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const text = response.content[0].type === 'text' ? response.content[0].text.trim() : '';
+    return JSON.parse(text) as T;
+  }
+
+  /**
    * Generates a contextual response in formal Spanish for the clinic's WhatsApp bot.
    * Used as a fallback for intents that don't have a specific flow handler yet (T-21..T-26).
    */
