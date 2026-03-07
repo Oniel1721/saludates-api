@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -11,4 +5,282 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum WhatsAppStatus {
+  DISCONNECTED
+  PENDING_QR
+  CONNECTED
+
+  @@map("whatsapp_status")
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+
+  @@map("appointment_status")
+}
+
+enum CreatedBy {
+  SECRETARY
+  BOT
+
+  @@map("created_by")
+}
+
+enum CancelledBy {
+  PATIENT
+  SECRETARY
+
+  @@map("cancelled_by")
+}
+
+enum ConversationFlow {
+  CREATING_APPOINTMENT
+  CONFIRMING
+  CANCELLING
+  RESCHEDULING
+  QUERYING_SERVICES
+  OUT_OF_FLOW
+  ESCALATED
+
+  @@map("conversation_flow")
+}
+
+enum MessageSender {
+  PATIENT
+  BOT
+  SECRETARY
+
+  @@map("message_sender")
+}
+
+enum MessageType {
+  TEXT
+  AUDIO
+  IMAGE
+  VIDEO
+  DOCUMENT
+  STICKER
+  LOCATION
+  CONTACT
+  UNSUPPORTED // fallback for unknown future types
+
+  @@map("message_type")
+}
+
+enum NotificationType {
+  ESCALATION      // bot escalated a conversation
+  UNCONFIRMED_2H  // appointment not confirmed 2h before
+  RESULT_NEEDED   // appointment time passed, result pending
+
+  @@map("notification_type")
+}
+
+// ─── Clinic ───────────────────────────────────────────────────────────────────
+
+model Clinic {
+  id                String         @id @default(cuid())
+  name              String
+  address           String
+  authorizedEmails  String[]       @map("authorized_emails") // Google emails allowed to access
+  whatsappPhone     String?        @map("whatsapp_phone")    // connected number, e.g. "18091234567"
+  whatsappSessionId String?        @map("whatsapp_session_id") // WasenderAPI session ID
+  whatsappStatus    WhatsAppStatus @default(DISCONNECTED) @map("whatsapp_status")
+  onboardingDone    Boolean        @default(false) @map("onboarding_done")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  services      Service[]
+  schedule      Schedule[]
+  timeBlocks    TimeBlock[]
+  patients      Patient[]
+  appointments  Appointment[]
+  conversations Conversation[]
+  notifications Notification[]
+
+  @@map("clinics")
+}
+
+// ─── Service ──────────────────────────────────────────────────────────────────
+// Services are never deleted, only archived.
+// When a price changes, the current version is archived and a new one is created
+// pointing to the previous via parentServiceId. Appointments remain linked to the
+// exact service version they were created with.
+
+model Service {
+  id              String    @id @default(cuid())
+  clinicId        String    @map("clinic_id")
+  name            String
+  price           Int       // in RD$, integers (no cents)
+  durationMinutes Int       @map("duration_minutes")
+  prerequisites   String?   // pre-appointment instructions for the patient (optional)
+  archivedAt      DateTime? @map("archived_at") // null = active
+  parentServiceId String?   @map("parent_service_id") // previous version of this service (if any)
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  clinic        Clinic        @relation(fields: [clinicId], references: [id])
+  parentService Service?      @relation("ServiceVersions", fields: [parentServiceId], references: [id])
+  childServices Service[]     @relation("ServiceVersions")
+  appointments  Appointment[]
+
+  @@map("services")
+}
+
+// ─── Schedule ─────────────────────────────────────────────────────────────────
+// Base schedule of the clinic per day of the week.
+// 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+
+model Schedule {
+  id        String  @id @default(cuid())
+  clinicId  String  @map("clinic_id")
+  dayOfWeek Int     @map("day_of_week") // 0–6
+  startTime String  @map("start_time")  // "08:00"
+  endTime   String  @map("end_time")    // "17:00"
+  isActive  Boolean @default(true) @map("is_active") // false = clinic closed that day
+
+  clinic Clinic @relation(fields: [clinicId], references: [id])
+
+  @@unique([clinicId, dayOfWeek])
+  @@map("schedules")
+}
+
+// ─── TimeBlock ────────────────────────────────────────────────────────────────
+// Exceptions to the base schedule: holidays, vacations, one-off blocks.
+// Can cover a few hours (lunch) or multiple days (vacation).
+
+model TimeBlock {
+  id            String   @id @default(cuid())
+  clinicId      String   @map("clinic_id")
+  startDatetime DateTime @map("start_datetime")
+  endDatetime   DateTime @map("end_datetime")
+  reason        String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  clinic Clinic @relation(fields: [clinicId], references: [id])
+
+  @@map("time_blocks")
+}
+
+// ─── Patient ──────────────────────────────────────────────────────────────────
+// Uniquely identified by their WhatsApp number within a clinic.
+// Created the first time they interact with the bot or when the secretary
+// creates an appointment with a new number.
+
+model Patient {
+  id        String   @id @default(cuid())
+  clinicId  String   @map("clinic_id")
+  name      String
+  phone     String   // raw number, e.g. "18091234567"
+  createdAt DateTime @default(now()) @map("created_at")
+
+  clinic        Clinic         @relation(fields: [clinicId], references: [id])
+  appointments  Appointment[]
+  conversations Conversation[]
+
+  @@unique([clinicId, phone])
+  @@map("patients")
+}
+
+// ─── Appointment ──────────────────────────────────────────────────────────────
+
+model Appointment {
+  id        String            @id @default(cuid())
+  clinicId  String            @map("clinic_id")
+  patientId String            @map("patient_id")
+  serviceId String            @map("service_id") // exact service version at time of booking
+  startsAt  DateTime          @map("starts_at")  // full date + time
+  endsAt    DateTime          @map("ends_at")    // calculated from service durationMinutes
+  price     Int               // in RD$ — auto-filled from service, editable per appointment
+  status    AppointmentStatus @default(PENDING)
+  createdBy CreatedBy         @map("created_by")
+
+  // 24h reminder
+  reminderSentAt DateTime? @map("reminder_sent_at")
+
+  // cancellation fields (only set when status = CANCELLED)
+  cancelledBy  CancelledBy? @map("cancelled_by")
+  cancelledAt  DateTime?    @map("cancelled_at")
+  cancelReason String?      @map("cancel_reason")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  clinic        Clinic         @relation(fields: [clinicId], references: [id])
+  patient       Patient        @relation(fields: [patientId], references: [id])
+  service       Service        @relation(fields: [serviceId], references: [id])
+  conversations Conversation[]
+  notifications Notification[]
+
+  @@map("appointments")
+}
+
+// ─── Conversation ─────────────────────────────────────────────────────────────
+// An active bot conversation with a patient.
+// A single conversation can escalate multiple times.
+
+model Conversation {
+  id            String           @id @default(cuid())
+  clinicId      String           @map("clinic_id")
+  patientId     String           @map("patient_id")
+  appointmentId String?          @map("appointment_id") // related appointment, if any
+  flow          ConversationFlow @default(OUT_OF_FLOW)
+  flowState     Json?            @map("flow_state") // internal FSM state for the bot
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  clinic        Clinic         @relation(fields: [clinicId], references: [id])
+  patient       Patient        @relation(fields: [patientId], references: [id])
+  appointment   Appointment?   @relation(fields: [appointmentId], references: [id])
+  messages      Message[]
+  notifications Notification[]
+
+  @@map("conversations")
+}
+
+// ─── Message ──────────────────────────────────────────────────────────────────
+// Individual messages within a conversation.
+// SECRETARY = message sent manually by the secretary from WhatsApp.
+
+model Message {
+  id             String        @id @default(cuid())
+  conversationId String        @map("conversation_id")
+  sender         MessageSender
+  type           MessageType   @default(TEXT)
+  text           String?       // null when message is not text
+  mediaUrl       String?       @map("media_url")    // file URL from WasenderAPI (if any)
+  contentType    String?       @map("content_type") // MIME type, e.g. "audio/ogg", "image/jpeg"
+  sentAt         DateTime      @default(now()) @map("sent_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@map("messages")
+}
+
+// ─── Notification ─────────────────────────────────────────────────────────────
+// System notifications for the secretary.
+// Delivered as real-time toasts via SSE and persisted in the history for 7 days.
+
+model Notification {
+  id             String           @id @default(cuid())
+  clinicId       String           @map("clinic_id")
+  type           NotificationType
+  title          String
+  body           String
+  appointmentId  String?          @map("appointment_id")
+  conversationId String?          @map("conversation_id")
+  readAt         DateTime?        @map("read_at") // null = unread
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  clinic       Clinic        @relation(fields: [clinicId], references: [id])
+  appointment  Appointment?  @relation(fields: [appointmentId], references: [id])
+  conversation Conversation? @relation(fields: [conversationId], references: [id])
+
+  @@map("notifications")
 }
