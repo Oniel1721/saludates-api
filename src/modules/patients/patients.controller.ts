@@ -1,5 +1,6 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Param, Query, Body, UseGuards } from '@nestjs/common';
 import { PatientsService } from '@/modules/patients/patients.service';
+import { UpdatePatientDto } from '@/modules/patients/dto/update-patient.dto';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { ClinicGuard } from '@/modules/auth/guards/clinic.guard';
 
@@ -18,5 +19,14 @@ export class PatientsController {
   @Get(':patientId')
   findOne(@Param('clinicId') clinicId: string, @Param('patientId') patientId: string) {
     return this.patients.findOne(clinicId, patientId);
+  }
+
+  @Patch(':patientId')
+  update(
+    @Param('clinicId') clinicId: string,
+    @Param('patientId') patientId: string,
+    @Body() dto: UpdatePatientDto,
+  ) {
+    return this.patients.update(clinicId, patientId, dto);
   }
 }
