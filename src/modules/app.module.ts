@@ -10,9 +10,10 @@ import { AvailabilityModule } from '@/modules/availability/availability.module';
 import { AppointmentsModule } from '@/modules/appointments/appointments.module';
 import { PatientsModule } from '@/modules/patients/patients.module';
 import { ConversationsModule } from '@/modules/conversations/conversations.module';
+import { NotificationsModule } from '@/modules/notifications/notifications.module';
 
 @Module({
-  imports: [EnvironmentModule, PrismaModule, AuthModule, ClinicsModule, ServicesModule, AvailabilityModule, AppointmentsModule, PatientsModule, ConversationsModule],
+  imports: [EnvironmentModule, PrismaModule, AuthModule, ClinicsModule, ServicesModule, AvailabilityModule, AppointmentsModule, PatientsModule, ConversationsModule, NotificationsModule],
   controllers: [AppController],
   providers: [AppService],
 })
