@@ -125,10 +125,12 @@ export class AppointmentsService {
     const startsAt = dto.startsAt ? new Date(dto.startsAt) : appointment.startsAt;
     const endsAt = this.computeEndsAt(startsAt, service.durationMinutes);
 
-    const datetimeChanged =
-      dto.startsAt && startsAt.getTime() !== appointment.startsAt.getTime();
+    // Re-check availability if the slot changed (different start OR different duration)
+    const slotChanged =
+      startsAt.getTime() !== appointment.startsAt.getTime() ||
+      endsAt.getTime() !== appointment.endsAt.getTime();
 
-    if (datetimeChanged) {
+    if (slotChanged) {
       const { available, reason } = await this.availability.checkSlot(
         clinicId,
         startsAt,
@@ -146,7 +148,8 @@ export class AppointmentsService {
       });
     }
 
-    // Editing datetime on a CONFIRMED appointment resets it to PENDING
+    // Only a startsAt change (date/time) resets CONFIRMED → PENDING (PRD rule)
+    const datetimeChanged = !!dto.startsAt && startsAt.getTime() !== appointment.startsAt.getTime();
     const newStatus =
       datetimeChanged && appointment.status === 'CONFIRMED' ? 'PENDING' : appointment.status;
 

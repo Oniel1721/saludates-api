@@ -253,9 +253,15 @@ export class AvailabilityService {
     const durationMin = service.durationMinutes;
     const availableSlots: string[] = [];
 
+    const now = new Date();
+
     for (let min = scheduleStartMin; min + durationMin <= scheduleEndMin; min += durationMin) {
       const slotStart = new Date(parsedDate);
       slotStart.setHours(Math.floor(min / 60), min % 60, 0, 0);
+
+      // Skip slots that have already started
+      if (slotStart <= now) continue;
+
       const slotEnd = new Date(slotStart.getTime() + durationMin * 60_000);
 
       const blockedByTimeBlock = timeBlocks.some(
