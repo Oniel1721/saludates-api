@@ -81,6 +81,31 @@ export class BotService implements OnModuleInit {
     this.logger.log(`Flow handler registered for: ${flow}`);
   }
 
+  /**
+   * Transitions a conversation to a new flow and calls the handler's start().
+   * Used by flows that need to chain into another flow (e.g. CONFIRMING → RESCHEDULING).
+   */
+  async transitionToFlow(
+    clinicId: string,
+    conversation: FlowConversation,
+    patient: FlowPatient,
+    flow: ConversationFlow,
+    flowState: Record<string, unknown> = {},
+  ): Promise<void> {
+    await this.prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { flow, flowState: flowState as Prisma.InputJsonValue },
+    });
+    const handler = this.flowHandlers.get(flow);
+    if (handler) {
+      await handler.start(
+        clinicId,
+        { ...conversation, flow, flowState: flowState as Prisma.JsonValue },
+        patient,
+      );
+    }
+  }
+
   constructor(
     private prisma: PrismaService,
     private whatsapp: WhatsAppService,
@@ -488,7 +513,7 @@ export class BotService implements OnModuleInit {
 
   // ── Escalation — T-28 ────────────────────────────────────────────────────
 
-  private async escalate(
+  async escalate(
     clinicId: string,
     conversation: { id: string },
     patient: { name: string; phone: string },
