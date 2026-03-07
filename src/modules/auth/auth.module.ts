@@ -5,13 +5,17 @@ import { AuthController } from '@/modules/auth/auth.controller';
 import { AuthService } from '@/modules/auth/auth.service';
 import { JwtStrategy } from '@/modules/auth/strategies/jwt.strategy';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
+import { EnvironmentService } from '@/config/environment.service';
 
 @Module({
   imports: [
     PassportModule,
-    JwtModule.register({
-      secret: process.env.JWT_SECRET,
-      signOptions: { expiresIn: '30d' },
+    JwtModule.registerAsync({
+      inject: [EnvironmentService],
+      useFactory: (env: EnvironmentService) => ({
+        secret: env.jwtSecret,
+        signOptions: { expiresIn: '30d' },
+      }),
     }),
   ],
   controllers: [AuthController],

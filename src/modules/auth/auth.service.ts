@@ -3,21 +3,25 @@ import { JwtService } from '@nestjs/jwt';
 import { OAuth2Client } from 'google-auth-library';
 import { PrismaService } from '@/prisma/prisma.service';
 import { JwtPayload, RequestUser } from '@/modules/auth/auth.types';
+import { EnvironmentService } from '@/config/environment.service';
 
 @Injectable()
 export class AuthService {
-  private googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+  private googleClient: OAuth2Client;
 
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
-  ) {}
+    private env: EnvironmentService,
+  ) {
+    this.googleClient = new OAuth2Client(this.env.googleClientId);
+  }
 
   async verifyGoogleToken(idToken: string): Promise<{ accessToken: string; user: RequestUser }> {
     // 1. Verify the id_token with Google
     const ticket = await this.googleClient.verifyIdToken({
       idToken,
-      audience: process.env.GOOGLE_CLIENT_ID,
+      audience: this.env.googleClientId,
     }).catch(() => {
       throw new UnauthorizedException('Invalid Google token');
     });
@@ -26,8 +30,7 @@ export class AuthService {
     if (!email) throw new UnauthorizedException('Could not retrieve email from Google token');
 
     // 2. Check if superadmin
-    const superadminEmails = (process.env.SUPERADMIN_EMAILS ?? '').split(',').map((e) => e.trim());
-    if (superadminEmails.includes(email)) {
+    if (this.env.superadminEmails.includes(email)) {
       return this.issueToken({ email, role: 'SUPERADMIN', clinicId: null });
     }
 
