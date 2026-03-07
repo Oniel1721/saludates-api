@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: saludates-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: saludates
+      POSTGRES_PASSWORD: saludates
+      POSTGRES_DB: saludates
+    ports:
+      - "5433:5432"
+    volumes:
+      - saludates-db-data:/var/lib/postgresql/data
+
+volumes:
+  saludates-db-data:
