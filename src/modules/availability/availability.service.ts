@@ -123,6 +123,10 @@ export class AvailabilityService {
     endsAt: Date,
     excludeAppointmentId?: string,
   ): Promise<SlotCheckResult> {
+    if (startsAt <= new Date()) {
+      throw new BadRequestException('Cannot check availability for a past date');
+    }
+
     // 1. Check base schedule
     const dayOfWeek = startsAt.getDay();
     const schedule = await this.prisma.schedule.findUnique({
@@ -192,12 +196,21 @@ export class AvailabilityService {
     date: string,
     serviceId: string,
   ): Promise<string[]> {
+    const parsedDate = new Date(date);
+    parsedDate.setHours(0, 0, 0, 0);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (parsedDate < today) {
+      throw new BadRequestException('Cannot get available slots for a past date');
+    }
+
     const service = await this.prisma.service.findFirst({
       where: { id: serviceId, clinicId, archivedAt: null },
     });
     if (!service) throw new NotFoundException('Service not found');
 
-    const parsedDate = new Date(date);
     const dayOfWeek = parsedDate.getDay();
 
     const schedule = await this.prisma.schedule.findUnique({
