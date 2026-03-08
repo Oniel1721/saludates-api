@@ -84,25 +84,42 @@ export class AppointmentsService {
     }
 
     const endsAt = this.computeEndsAt(startsAt, service.durationMinutes);
-    const { available, reason } = await this.availability.checkSlot(clinicId, startsAt, endsAt);
 
+    // Validate schedule hours and time blocks up-front (good error messages, not a race risk)
+    const { available, reason } = await this.availability.checkSlot(clinicId, startsAt, endsAt);
     if (!available) throw new ConflictException(reason);
 
     const patient = await this.findOrCreatePatient(clinicId, dto.patientName, dto.patientPhone);
 
-    const appointment = await this.prisma.appointment.create({
-      data: {
-        clinicId,
-        patientId: patient.id,
-        serviceId: service.id,
-        startsAt,
-        endsAt,
-        price: dto.price ?? service.price,
-        status: 'PENDING',
-        createdBy: 'SECRETARY',
+    // Atomic overlap check + insert: prevents double-booking under concurrent requests
+    const appointment = await this.prisma.$transaction(
+      async (tx) => {
+        const overlapping = await tx.appointment.findFirst({
+          where: {
+            clinicId,
+            status: { in: ['PENDING', 'CONFIRMED'] },
+            startsAt: { lt: endsAt },
+            endsAt: { gt: startsAt },
+          },
+        });
+        if (overlapping) throw new ConflictException('This time slot is already booked');
+
+        return tx.appointment.create({
+          data: {
+            clinicId,
+            patientId: patient.id,
+            serviceId: service.id,
+            startsAt,
+            endsAt,
+            price: dto.price ?? service.price,
+            status: 'PENDING',
+            createdBy: 'SECRETARY',
+          },
+          include: { patient: true, service: true },
+        });
       },
-      include: { patient: true, service: true },
-    });
+      { isolationLevel: 'Serializable' },
+    );
 
     // MSG-01 — send confirmation to patient (fire-and-forget)
     void this.whatsappMessages.sendCreatedBySecretary(clinicId, appointment);
