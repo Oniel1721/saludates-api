@@ -6,7 +6,7 @@ export class CreateAppointmentDto {
   patientName: string;
 
   @IsString()
-  @Matches(/^\d{7,15}$/, { message: 'patientPhone must be a numeric string (7–15 digits)' })
+  @Matches(/^\+\d{7,15}$/, { message: 'patientPhone must be a E.164 phone number (e.g. +18091234567)' })
   patientPhone: string;
 
   @IsString()
