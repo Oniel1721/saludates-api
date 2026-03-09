@@ -95,7 +95,6 @@ model Clinic {
   whatsappApiKey        String?        @map("whatsapp_api_key")         // session-scoped Bearer token (for send-message)
   whatsappWebhookSecret String?        @map("whatsapp_webhook_secret")  // for verifying X-Webhook-Signature
   whatsappStatus        WhatsAppStatus @default(DISCONNECTED) @map("whatsapp_status")
-  onboardingDone    Boolean        @default(false) @map("onboarding_done")
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
 
