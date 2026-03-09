@@ -35,7 +35,7 @@ export class ConversationsService {
       where: { id: conversationId, clinicId },
       include: {
         patient: true,
-        appointment: { include: { service: true } },
+        appointment: { include: { service: true, patient: true } },
         messages: { orderBy: { sentAt: 'asc' } },
       },
     });
