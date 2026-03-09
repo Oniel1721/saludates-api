@@ -123,8 +123,9 @@ export class BotService implements OnModuleInit {
     try {
       const { fromMe, remoteJid } = message.key;
 
-      // Extract phone from JID (e.g. "18091234567@s.whatsapp.net" → "18091234567")
-      const phone = remoteJid.replace(/@.*/, '');
+      // Extract phone from JID (e.g. "18091234567@s.whatsapp.net" → "+18091234567")
+      const rawPhone = remoteJid.replace(/@.*/, '');
+      const phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
 
       // Skip status broadcasts and group messages
       if (remoteJid === 'status@broadcast' || remoteJid.endsWith('@g.us')) return;
