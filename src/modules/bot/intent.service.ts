@@ -2,6 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { EnvironmentService } from '@/config/environment.service';
 
+/** Strips markdown code fences (e.g. ```json ... ```) and parses JSON safely. */
+function parseAiJson<T>(raw: string): T {
+  const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  return JSON.parse(stripped) as T;
+}
+
 export type BotIntent =
   | 'CREATE_APPOINTMENT'
   | 'CANCEL_APPOINTMENT'
@@ -81,7 +87,9 @@ Usa "low" si no estás seguro. Usa ESCALATE con "low" para situaciones urgentes 
       });
 
       const text = response.content[0].type === 'text' ? response.content[0].text.trim() : '';
-      const parsed = JSON.parse(text) as { intent: BotIntent; confidence: 'high' | 'low' };
+      console.log({text});
+      const parsed = parseAiJson<{ intent: BotIntent; confidence: 'high' | 'low' }>(text);
+      console.log('Parsed:', parsed);
       return { intent: parsed.intent, confidence: parsed.confidence };
     } catch (err) {
       this.logger.warn(`Intent classification failed: ${err}`);
@@ -103,7 +111,7 @@ Usa "low" si no estás seguro. Usa ESCALATE con "low" para situaciones urgentes 
     });
 
     const text = response.content[0].type === 'text' ? response.content[0].text.trim() : '';
-    return JSON.parse(text) as T;
+    return parseAiJson<T>(text);
   }
 
   /**
