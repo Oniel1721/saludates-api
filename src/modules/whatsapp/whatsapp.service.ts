@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { WhatsAppStatus } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { EnvironmentService } from '@/config/environment.service';
@@ -11,6 +11,7 @@ import {
   MessageReceivedPayload,
   MessageUpsertPayload,
   IncomingMessage,
+  SessionStatus,
 } from '@/lib/wasender';
 
 @Injectable()
@@ -101,31 +102,39 @@ export class WhatsAppService {
     const clinic = await this.prisma.clinic.findUniqueOrThrow({
       where: { id: clinicId },
       select: {
-        whatsappStatus: true,
         whatsappPhone: true,
         whatsappSessionId: true,
       },
     });
 
-    let qrCode: string | null = null;
-
-    if (clinic.whatsappStatus === WhatsAppStatus.PENDING_QR && clinic.whatsappSessionId) {
-      // Try to get a fresh QR from WasenderAPI (cache may be stale after ~45s)
-      try {
-        const { data } = await this.wasender.getSessionQrCode(clinic.whatsappSessionId);
-        qrCode = data.qrCode;
-        this.qrCache.set(clinicId, qrCode);
-      } catch {
-        // Fall back to cache if the API call fails
-        qrCode = this.qrCache.get(clinicId) ?? null;
-      }
+    if (!clinic.whatsappSessionId) {
+      return {
+        status: 'disconnected',
+        phone: clinic.whatsappPhone,
+        qrCode: null,
+      };
     }
 
-    return {
-      status: clinic.whatsappStatus,
-      phone: clinic.whatsappPhone,
-      qrCode,
-    };
+    try {
+      const { data: sessionData, success } = await this.wasender.getSession(clinic.whatsappSessionId);
+      if(!success || !sessionData) {
+        throw new NotFoundException('Session not found');
+      }
+      const status = sessionData.status;
+      const phone = sessionData.phone_number;
+      let qrCode: string | null = null;
+      if(status === 'need_scan'){
+        const { data } = await this.wasender.getSessionQrCode(clinic.whatsappSessionId);
+        qrCode = data.qrCode;
+      }
+      return {
+        status,
+        phone,
+        qrCode,
+      };
+    } catch {
+      throw new InternalServerErrorException('Failed to get session status');
+    }
   }
 
   /** Deletes the WasenderAPI session and marks the clinic as disconnected. */
