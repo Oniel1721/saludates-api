@@ -4,7 +4,7 @@ import { NotificationType } from '@prisma/client';
 import { addHours } from 'date-fns';
 import { PrismaService } from '@/prisma/prisma.service';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
-import { ConfirmingFlow } from '@/modules/bot/flows/confirming.flow';
+import { BotService } from '@/modules/bot/bot.service';
 
 @Injectable()
 export class SchedulerService {
@@ -13,7 +13,7 @@ export class SchedulerService {
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
-    private confirmingFlow: ConfirmingFlow,
+    private bot: BotService,
   ) {}
 
   /**
@@ -39,7 +39,7 @@ export class SchedulerService {
 
     for (const appt of appointments) {
       try {
-        await this.confirmingFlow.sendReminder(appt.clinicId, appt.id);
+        await this.bot.sendReminder(appt.clinicId, appt.id);
       } catch (err) {
         this.logger.error(`Failed to send reminder for appointment ${appt.id}: ${err}`);
       }
